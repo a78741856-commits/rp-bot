@@ -1,14 +1,12 @@
+import json
 import telebot
-import google.generativeai as genai
+import requests
 
-# 1. Твои ключи и ID:
 BOT_TOKEN = "8629229178:AAE28GmtJNSVkDvN9btG3Ok-551OabK3mBI"
-GEMINI_KEY = "AQ.Ab8RN6LTZS-s0acTl3EwtGFsg2NKKiUNYTe6kryuqQT1v39pwA"
-MY_ID = 8765917744  # Твой цифровой ID от @userinfobot (без кавычек)
+GEMINI_KEY = "AQ.Ab8RN6IU3zwExbMpHv-ZKE2mwTQQ0HAZ9JxBfn0DNitLyKxJcg"
+MY_ID = 8765917744
 
 bot = telebot.TeleBot(BOT_TOKEN)
-genai.configure(api_key=GEMINI_KEY)
-
 DATA_FILE = "rp_posts.txt"
 
 PROMPT = """
@@ -22,13 +20,33 @@ PROMPT = """
 Пиши кратко и строго по фактам. Если действий в сфере не было, пиши "Нет изменений".
 """
 
-# Сохранение постов из твоего канала
+def ask_gemini(text):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": f"{PROMPT}\n\nПосты игрока за день:\n{text}"}
+                ]
+            }
+        ]
+    }
+    
+    response = requests.post(url, headers=headers, json=payload, timeout=30)
+    data = response.json()
+    
+    if response.status_code == 200:
+        return data["candidates"][0]["content"]["parts"][0]["text"]
+    else:
+        error_msg = data.get("error", {}).get("message", "Неизвестная ошибка")
+        return f"Ошибка API ({response.status_code}): {error_msg}"
+
 @bot.channel_post_handler(content_types=['text'])
 def save_channel_post(message):
     with open(DATA_FILE, "a", encoding="utf-8") as f:
         f.write(message.text + "\n---\n")
 
-# Команда /itogi в личке у бота
 @bot.message_handler(commands=['itogi'])
 def give_summary(message):
     if message.from_user.id != MY_ID:
@@ -47,9 +65,8 @@ def give_summary(message):
     bot.send_message(message.chat.id, "⏳ Анализирую посты за день...")
 
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content(f"{PROMPT}\n\nПосты игрока за день:\n{posts}")
-        bot.send_message(message.chat.id, response.text)
+        summary = ask_gemini(posts)
+        bot.send_message(message.chat.id, summary)
 
         # Очищаем файл для нового дня
         with open(DATA_FILE, "w", encoding="utf-8") as f:
